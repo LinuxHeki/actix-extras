@@ -66,6 +66,8 @@
 #![doc(html_logo_url = "https://actix.rs/img/logo.png")]
 #![doc(html_favicon_url = "https://actix.rs/favicon.ico")]
 
+#[cfg(feature = "rustls")]
+use std::io::BufReader;
 use std::{
     env, fmt,
     fs::File,
@@ -82,6 +84,12 @@ use actix_web::{
     http::KeepAlive as ActixKeepAlive,
     Error as WebError, HttpServer,
 };
+#[cfg(feature = "openssl")]
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
+#[cfg(feature = "rustls")]
+use rustls::{Certificate, PrivateKey, ServerConfig};
+#[cfg(feature = "rustls")]
+use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys};
 use serde::{de, Deserialize};
 
 #[macro_use]
@@ -260,11 +268,64 @@ where
 {
     fn apply_settings(mut self, settings: &ActixSettings) -> Self {
         if settings.tls.enabled {
-            // for Address { host, port } in &settings.actix.hosts {
-            //     self = self.bind(format!("{}:{}", host, port))
-            //         .unwrap(/*TODO*/);
-            // }
-            todo!("[ApplySettings] TLS support has not been implemented yet.");
+            #[cfg(feature = "openssl")]
+            {
+                for Address { host, port } in &settings.hosts {
+                    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+                    builder.set_private_key_file(&settings.tls.private_key, SslFiletype::PEM)
+                        .unwrap(/*TODO*/);
+                    builder.set_certificate_chain_file(&settings.tls.certificate)
+                        .unwrap(/*TODO*/);
+
+                    self = self.bind_openssl(format!("{host}:{port}"), builder)
+                        .unwrap(/*TODO*/);
+                }
+            }
+
+            #[cfg(feature = "rustls")]
+            {
+                let config = ServerConfig::builder()
+                    .with_safe_defaults()
+                    .with_no_client_auth();
+
+                let cert_file =
+                    &mut BufReader::new(File::open(&settings.tls.certificate).unwrap(/*TODO*/));
+                let key_file =
+                    &mut BufReader::new(File::open(&settings.tls.private_key).unwrap(/*TODO*/));
+
+                let cert_chain = certs(cert_file)
+                    .unwrap(/*TODO*/)
+                    .into_iter()
+                    .map(Certificate)
+                    .collect();
+                let mut keys: Vec<PrivateKey> = pkcs8_private_keys(key_file)
+                    .unwrap(/*TODO*/)
+                    .into_iter()
+                    .map(PrivateKey)
+                    .collect();
+
+                let config = if keys.is_empty() {
+                    let mut keys: Vec<PrivateKey> = ec_private_keys(key_file)
+                        .unwrap(/*TODO*/)
+                        .into_iter()
+                        .map(PrivateKey)
+                        .collect();
+
+                    if keys.is_empty() {
+                        eprintln!("Could not locate private keys.");
+                        std::process::exit(1);
+                    } else {
+                        config.with_single_cert(cert_chain, keys.remove(0)).unwrap(/*TODO*/)
+                    }
+                } else {
+                    config.with_single_cert(cert_chain, keys.remove(0)).unwrap(/*TODO*/)
+                };
+
+                for Address { host, port } in &settings.hosts {
+                    self = self.bind_rustls(format!("{host}:{port}"), config.clone())
+                        .unwrap(/*TODO*/);
+                }
+            }
         } else {
             for Address { host, port } in &settings.hosts {
                 self = self.bind(format!("{host}:{port}"))
