@@ -290,7 +290,9 @@ where
 
                 let cert_file =
                     &mut BufReader::new(File::open(&settings.tls.certificate).unwrap(/*TODO*/));
-                let key_file =
+                let pkcs8_key_file =
+                    &mut BufReader::new(File::open(&settings.tls.private_key).unwrap(/*TODO*/));
+                let ec_key_file =
                     &mut BufReader::new(File::open(&settings.tls.private_key).unwrap(/*TODO*/));
 
                 let cert_chain = certs(cert_file)
@@ -298,14 +300,14 @@ where
                     .into_iter()
                     .map(Certificate)
                     .collect();
-                let mut keys: Vec<PrivateKey> = pkcs8_private_keys(key_file)
+                let mut keys: Vec<PrivateKey> = pkcs8_private_keys(pkcs8_key_file)
                     .unwrap(/*TODO*/)
                     .into_iter()
                     .map(PrivateKey)
                     .collect();
 
                 let config = if keys.is_empty() {
-                    let mut keys: Vec<PrivateKey> = ec_private_keys(key_file)
+                    let mut keys: Vec<PrivateKey> = ec_private_keys(ec_key_file)
                         .unwrap(/*TODO*/)
                         .into_iter()
                         .map(PrivateKey)
